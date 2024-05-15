@@ -1,0 +1,151 @@
+compute_resources_{{name}}_{{randomstring}}=k8s.V1ResourceRequirements(
+    requests={
+        'cpu': '{{ launcherrequestcpu }}{% if launcherunitrequestcpu == "m" %}m{% endif %}',
+        'memory': '{{ launcherrequestmem }}{{ launcherunitrequestmem }}'
+    },
+    limits={
+        'cpu': '{{ launcherlimitcpu }}{% if launcherunitlimitcpu == "m" %}m{% endif %}',
+        'memory': '{{ launcherlimitmem }}{{ launcherunitlimitmem }}'
+    }
+)
+
+{%- if kerberos %}
+# START KEYTAB
+volume_config_keytab_{{name}}_{{randomstring}} = k8s.V1ConfigMapVolumeSource(
+  name='{{ dcpprefix }}-keytab-{{name}}-cm'
+)
+vm_keytab_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path="/opt/keytabs", 
+  name="keytabs", 
+  sub_path=None, 
+  read_only=False
+)
+v_keytab_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="keytabs",
+    config_map=volume_config_keytab_{{name}}_{{randomstring}}
+)
+# START KEYTAB
+{%- endif %}
+
+#SPARK TEMPLATE
+vm_sparktemplate_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path="{{ sparkpodtemplatedir }}", 
+  name="sparktemplate", 
+  sub_path=None, 
+  read_only=False
+)
+{%- if not useconfigmap %}
+v_sparktemplate_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="sparktemplate",
+    empty_dir=k8s.V1EmptyDirVolumeSource()
+)
+{%- else %}
+volume_config_template_{{name}}_{{randomstring}} = k8s.V1ConfigMapVolumeSource(
+  name='{{ dcpprefix }}-sparktemplate-{{name}}-cm'
+)
+v_sparktemplate_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="sparktemplate",
+    config_map=volume_config_template_{{name}}_{{randomstring}}
+)
+{%- endif %}
+
+{%- if useconfigmap %}
+#START SPARK CONFIG
+volume_config_sparkconf_{{name}}_{{randomstring}} = k8s.V1ConfigMapVolumeSource(
+  name='{{ dcpprefix }}-sparkconf-{{name}}-cm'
+)
+vm_sparkconf_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path="/opt/spark/conf/spark-defaults.conf", 
+  name="sparkconf", 
+  sub_path='spark-defaults.conf', 
+  read_only=False
+)
+v_sparkconf_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="sparkconf",
+    config_map=volume_config_sparkconf_{{name}}_{{randomstring}}
+)
+#END SPARK CONFIG
+{%- endif %}
+
+#PASSWD
+volume_config_passwd_{{name}}_{{randomstring}} = k8s.V1ConfigMapVolumeSource(
+  name='{{ dcpprefix }}-passwd-{{name}}-cm'
+)
+volume_mount_passwd_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path='/etc/passwd', 
+  name='passwd', 
+  sub_path='passwd', 
+  read_only=False
+)
+volume_passwd_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name='passwd', 
+    config_map=volume_config_passwd_{{name}}_{{randomstring}}
+)
+
+#TMP DIRECTORY
+volume_mount_tmpdir_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path="/tmp", 
+  name="tmp", 
+  sub_path=None, 
+  read_only=False
+)
+volume_tmpdir_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="tmp",
+    empty_dir=k8s.V1EmptyDirVolumeSource()
+)
+
+{%- if additionalCertificate is defined and additionalCertificate|length > 0 %}
+#FINAL CACERT
+volume_mount_finalcacert_{{name}}_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path="/opt/finalcacert", 
+  name="finalcacert", 
+  sub_path=None, 
+  read_only=False
+)
+volume_finalcacet_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name="finalcacert",
+    empty_dir=k8s.V1EmptyDirVolumeSource()
+)
+
+#CERTIFICATE CONFIGMAP
+volume_config_cert_{{name}}_{{randomstring}} = k8s.V1ConfigMapVolumeSource(
+  name='{{ dcpprefix }}-addcert-{{ name }}-cm'
+)
+volume_mount_cert_{{randomstring}} = k8s.V1VolumeMount(
+  mount_path='/opt/addcert', 
+  name='addcert',
+  read_only=False
+)
+volume_cert_{{name}}_{{randomstring}} = k8s.V1Volume(
+    name='addcert', 
+    config_map=volume_config_cert_{{name}}_{{randomstring}}
+)
+{%- endif %}
+
+init_container_{{nodeid}} = k8s.V1Container(
+    name="{{ dcpprefix }}-spark-template-{{namerandomstring}}",
+    image="{{imagename}}",
+    {%- if additionalCertificate is defined and additionalCertificate|length > 0 %}
+    volume_mounts=[vm_sparktemplate_{{name}}_{{randomstring}}, volume_mount_cert_{{randomstring}}, volume_mount_finalcacert_{{name}}_{{randomstring}}],
+    {%- else %}    
+    volume_mounts=[vm_sparktemplate_{{name}}_{{randomstring}}],
+    {%- endif %}
+    command=["sh", "-c"],
+    args=["""
+{%- if additionalCertificate is defined and additionalCertificate|length > 0 %}
+cp $JAVA_HOME/lib/security/cacerts /opt/finalcacert/cacerts
+chmod 777 /opt/finalcacert/cacerts
+{%- for cert in additionalCertificate %}
+keytool -import -noprompt -trustcacerts -alias {{cert.name}} -file /opt/addcert/{{cert.name}} -keystore /opt/finalcacert/cacerts -storepass changeit
+{%- endfor %}
+{%- endif %}
+{%- if not useconfigmap %}
+cat << EOF > {{ sparkpodtemplatedir }}/driver.yaml
+{{ drivercontent}}
+EOF
+cat << EOF > /opt/spark/template/executor.yaml
+{{ executorcontent}}
+EOF
+{%- endif %}
+    """],
+)
