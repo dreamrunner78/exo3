@@ -24,7 +24,7 @@ v_keytab_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
     name="keytabs",
     config_map=volume_config_keytab_{{name}}_{{randomstring}}
 )
-# START KEYTAB
+# END KEYTAB
 {%- endif %}
 
 #SPARK TEMPLATE
@@ -48,6 +48,7 @@ v_sparktemplate_tmp_{{name}}_{{randomstring}} = k8s.V1Volume(
     config_map=volume_config_template_{{name}}_{{randomstring}}
 )
 {%- endif %}
+#END TEMPLATE
 
 {%- if useconfigmap %}
 #START SPARK CONFIG
