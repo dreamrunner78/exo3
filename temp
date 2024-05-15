@@ -1,0 +1,3 @@
+{{- if .Values.extraEnvFrom }}
+{{- include "custom_dcp_environment_from" . | default "\n  []" | indent 8 }}
+{{- end }}
