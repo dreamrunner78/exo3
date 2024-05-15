@@ -1,0 +1,49 @@
+{{nodeid}} = KubernetesPodOperator(namespace='{{namespace}}',
+image="{{imagename}}",
+{%- if sparksecrets is defined and sparksecrets|length > 0 %}
+image_pull_secrets=[{%- for sparksecret in sparksecrets %}k8s.V1LocalObjectReference("{{sparksecret}}"){% if not loop.last %},{% endif %}{%- endfor %}],
+{%- endif %}
+cmds=[
+"sh",
+"-c",
+'{{ commandline }} {%- if not useconfigmap %} {{ confstring }}{%- endif %} {%- if classtype %} --class {{ sparkmainapplication }}{%- endif %} {%- if sparkextrajars is defined and sparkextrajars|length > 0 %} --jars {{ sparkextrajars }} {%- endif %} {%- if sparktype == 'Python' %}{%- if sparkextrapyList is defined and sparkextrapyList|length > 0 %}--py-files {{ sparkextrapyList | join(',') }} {%- endif %}{%- endif %} {%- if sparkextrafilesList is defined and sparkextrafilesList|length > 0 %} --files {{ sparkextrafilesList | join(',') }} {%- endif %} {{ sparkmainjar }} {%- if sparkargs is defined and sparkargs|length > 0 %} {{ sparkargs | join(' ') }} {%- endif %}'
+],
+name="{{ dcpprefix }}-{{ name }}-launcher-{{ randomstring }}",
+task_id="{{ dcpprefix }}-spark-task-{{namerandomstring}}",
+env_vars={
+"SPARK_WORKER_DIR": "/opt/spark/work-dir"
+},
+schedulername='{{ kubeschedulername }}',
+{%- if not useconfigmap %}
+init_containers=[init_container_{{nodeid}}],
+{%- endif %}
+{%- if additionalCertificate is defined and additionalCertificate|length > 0 %}
+volume_mounts=[vm_sparktemplate_{{name}}_{{randomstring}}, volume_mount_passwd_{{name}}_{{randomstring}}, volume_mount_tmpdir_{{name}}_{{randomstring}}, volume_mount_finalcacert_{{name}}_{{randomstring}}, volume_mount_cert_{{randomstring}}{%- if useconfigmap %},vm_sparkconf_{{name}}_{{randomstring}}{%- endif %}{%- if kerberos %},vm_keytab_{{name}}_{{randomstring}}{%- endif %}],
+volumes=[v_sparktemplate_tmp_{{name}}_{{randomstring}}, volume_passwd_{{name}}_{{randomstring}}, volume_tmpdir_{{name}}_{{randomstring}}, volume_finalcacet_{{name}}_{{randomstring}}, volume_cert_{{name}}_{{randomstring}}{%- if useconfigmap %},v_sparkconf_tmp_{{name}}_{{randomstring}}{%- endif %}{%- if kerberos %},v_keytab_tmp_{{name}}_{{randomstring}}{%- endif %}],
+{%- else %}
+volume_mounts=[vm_sparktemplate_{{name}}_{{randomstring}}, volume_mount_passwd_{{name}}_{{randomstring}}, volume_mount_tmpdir_{{name}}_{{randomstring}}{%- if useconfigmap %},vm_sparkconf_{{name}}_{{randomstring}}{%- endif %}{%- if kerberos %},vm_keytab_{{name}}_{{randomstring}}{%- endif %}],
+volumes=[v_sparktemplate_tmp_{{name}}_{{randomstring}}, volume_passwd_{{name}}_{{randomstring}}, volume_tmpdir_{{name}}_{{randomstring}}{%- if useconfigmap %},v_sparkconf_tmp_{{name}}_{{randomstring}}{%- endif %}{%- if kerberos %},v_keytab_tmp_{{name}}_{{randomstring}}{%- endif %}],
+{%- endif %}
+service_account_name='{{servicecaccount}}',
+{%- if podoperatorlabels is defined and podoperatorlabels|length > 0 %}
+labels={
+{%- for label in podoperatorlabels %}
+"{{ label.name }}":"{{ label.value }}"{% if not loop.last %},{% endif %}
+{%- endfor %}
+},
+{%- endif %}
+security_context={
+"runAsNonRoot": True,
+"runAsUser": {{runasuser}},
+"allowPrivilegeEscalation": False,
+"seccompProfile":{
+    "type": "RuntimeDefault"
+},
+"capabilities": {
+    'drop': '["ALL"]'
+}
+},
+container_resources=compute_resources_{{name}}_{{randomstring}},
+get_logs=True,
+dag=dag
+)
